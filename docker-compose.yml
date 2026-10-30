@@ -1,0 +1,57 @@
+# CorpAssist — real-lab topology (option 1):
+#   app + ollama run here; MySQL is EXTERNAL (the db-net VM at DB_HOST).
+#
+#   docker compose up --build
+#
+# The Docker host must be a corp-net machine that can reach the db-net MySQL VM
+# through pfSense (corp->db:3306). See the setup doc for placement on a Windows
+# rig (run this inside a small corp-net Linux VM, not on the Windows host).
+#
+# corp-net is 192.168.50.0/24 in this lab (NOT 192.168.1.0/24, which is the
+# physical home LAN). db-net stays 172.16.0.0/24.
+#
+# The app is shipped vulnerable. Remediation is applied afterward as a patch
+# (see patch/) — there is no hardened toggle here.
+name: corpassist
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: corpassist-ollama
+    volumes:
+      - ollama-models:/root/.ollama      # model cache persists across runs
+    networks: [corpassist-net]
+    # ports: ["11434:11434"]             # uncomment only to reach Ollama from the host
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: corpassist-app
+    depends_on: [ollama]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      CORPASSIST_MODEL: ${CORPASSIST_MODEL:-llama3.1:8b}
+      # DB: the deliberately over-privileged lab account (AI-03 / DB-03).
+      DB_HOST: ${DB_HOST:-172.16.0.10}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME:-corp_sensitive}
+      DB_USER: ${DB_USER:-dba_admin}
+      DB_PASSWORD: ${DB_PASSWORD:-dba123}
+      # Weak lab login accounts (basic employee + HR/IT admin).
+      USER_EMPLOYEE_PW: ${USER_EMPLOYEE_PW:-employee123}
+      USER_ADMIN_PW: ${USER_ADMIN_PW:-admin123}
+    volumes:
+      - ./chroma:/app/chroma             # persist the vector store
+      - ./logs:/app/logs                 # blue-team telemetry on the host
+      - ./data:/app/data                 # persistent per-user chat history (SQLite)
+    ports:
+      - "8501:8501"                      # open http://localhost:8501
+    networks: [corpassist-net]
+    restart: unless-stopped
+
+networks:
+  corpassist-net:
+    driver: bridge
+
+volumes:
+  ollama-models:

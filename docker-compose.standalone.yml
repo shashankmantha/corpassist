@@ -1,0 +1,24 @@
+# CorpAssist — standalone topology (option 2), for dev / off-lab testing.
+# Adds a throwaway MySQL seeded from schema.sql and points the app at it.
+# The leak then comes from a co-located DB, so it does NOT exercise the real
+# pfSense corp->db path — use docker-compose.yml alone for the graded demo.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.standalone.yml up --build
+name: corpassist
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: corpassist-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: toor          # weak on purpose, lab only
+      MYSQL_DATABASE: corp_sensitive
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    networks: [corpassist-net]
+    restart: unless-stopped
+
+  app:
+    depends_on: [ollama, mysql]
+    environment:
+      DB_HOST: mysql                     # override: use the throwaway container

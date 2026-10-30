@@ -1,0 +1,20 @@
+# secrets / local config
+.env
+
+# generated at runtime
+chroma/
+logs/
+data/
+
+# the active poisoned doc is planted per-demo, not committed
+docs/it_notice_directory_sync.md
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# model blobs must never go in the repo (pulled on first run / side-loaded)
+*.gguf
+*.bin
