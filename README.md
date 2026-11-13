@@ -16,33 +16,51 @@ purpose**. You exploit it, then apply the remediation as a version-controlled
 | AI-02 | RAG poisoning (indirect injection) | `docs/` + `rag.py` | `patch/remediation.patch` |
 | AI-03 | Excessive agency → PII leak | `tools.py` — `SELECT *` as `dba_admin` | patch + `patch/harden.sql` |
 | AI-04 | Improper output handling | `app.py` — `unsafe_allow_html=True` | `patch/remediation.patch` |
+| BAC   | Broken access control — role not enforced at the tool | `app.py` | patch (gates lookup to admins) |
 
 Findings map to OWASP LLM Top 10 **2025** and MITRE ATLAS — see the As-Built Spec.
+
+## Requirements
+
+Docker + Compose, on a Linux host (the lab runs it on a **Lubuntu VM on
+corp-net**). First run pulls the model (~4.7 GB) once, then it's cached.
+
+## Start it (helper scripts)
+
+```bash
+./corp-assist.sh              # real lab — connects to the db-net MySQL VM (DB_HOST in .env)
+./corp-assist.sh standalone   # dev / off-lab — self-contained throwaway MySQL
+./corp-assist.sh stop         # stop the stack
+```
+
+The script seeds `.env` on first run, starts the stack detached, and prints the
+URL, the login accounts, and the log-follow command. Open **http://localhost:8501**
+(or `http://<vm-ip>:8501` from another corp-net machine).
+
+`make up` / `make standalone` do the same if you prefer `make`.
+
+## Deploy & update (git workflow)
+
+The repo is the source of truth. On the deployed VM:
+
+```bash
+git clone https://github.com/shashankmantha/corpassist.git
+cd corpassist
+./corp-assist.sh              # first boot
+
+# to pull updates later:
+git pull && ./rebuild.sh      # rebuild the image + restart; data/ and chroma/ are preserved
+```
+
+`./rebuild.sh` (optionally `./rebuild.sh standalone`) rebuilds after any code
+change. Your `.env`, chat history (`data/`), vector store (`chroma/`), and the
+model cache survive pulls and rebuilds (all gitignored).
 
 ## Network
 
 corp-net is **`192.168.50.0/24`** in this lab (not `192.168.1.0/24`, the physical
 home LAN). db-net stays `172.16.0.0/24`. The app runs on corp-net and reaches the
 db-net MySQL VM through pfSense's `corp→db:3306` rule.
-
-## Quick start (real lab)
-
-Run on a **corp-net** machine that can reach the db-net MySQL VM through pfSense.
-
-```bash
-cp .env.example .env            # confirm DB_HOST = your db-net MySQL VM
-make up                         # or: docker compose up --build
-# open http://localhost:8501     (first run pulls the model ~4.7 GB, internet once)
-```
-
-## Standalone (dev / off-lab)
-
-Self-contained stack with a throwaway seeded MySQL. Does **not** exercise the
-real pfSense path.
-
-```bash
-make standalone
-```
 
 ## Accounts & chat history
 
@@ -55,7 +73,7 @@ login screen):
 | `hradmin`  | `admin123`    | HR / IT admin |
 
 Chat history persists per user in a SQLite store under `data/` (survives
-restarts). Two people can connect at once — open the URL in two browsers and
+restarts). Two endpoints can connect at once — open the URL in two browsers and
 sign in as each account; each keeps its own history.
 
 The role is **not** enforced at the DB tool in the baseline, so a basic user who
@@ -73,13 +91,14 @@ make poison           # plant the AI-02 doc + re-ingest, then ask a benign quest
 - **AI-01 / AI-03:** ask for an employee by name → SSNs returned; see `logs/tool.log`.
 - **AI-02:** after `make poison`, ask "what's the PTO policy?" → mass leak.
 - **AI-04:** get injected HTML into a reply and watch it render.
+- **BAC:** sign in as `employee` and prompt-inject → still leaks (role not enforced).
 
 Then remediate and retest:
 
 ```bash
 make patch            # apply patch/remediation.patch (git apply)
 mysql -h <db> -u root -p < patch/harden.sql   # create the read-only app_ro account
-docker compose up --build && make smoke       # smoke now shows the leaks are closed
+./rebuild.sh && make smoke                    # smoke now shows the leaks are closed
 make unpatch          # roll the code change back if you need the vulnerable build again
 ```
 
